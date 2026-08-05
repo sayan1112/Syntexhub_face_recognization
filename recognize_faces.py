@@ -1,9 +1,36 @@
+import argparse
 import os
 import pickle
+from pathlib import Path
+
+import numpy as np
+
+from runtime_env import ensure_runtime_paths
+
+ensure_runtime_paths()
+
 import cv2
 import face_recognition
 
-ENCODINGS_FILE = "encodings.pkl"
+BASE_DIR = Path(__file__).resolve().parent
+ENCODINGS_FILE = str(BASE_DIR / "encodings.pkl")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--demo", action="store_true", help="Use a generated demo frame when the camera is unavailable")
+    parser.add_argument("--once", action="store_true", help="Process one frame and exit")
+    return parser.parse_args()
+
+
+def create_demo_frame():
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    frame[:] = (20, 20, 20)
+    cv2.rectangle(frame, (120, 120), (520, 360), (0, 255, 255), 2)
+    cv2.circle(frame, (320, 240), 90, (255, 255, 255), 2)
+    cv2.putText(frame, "Demo mode", (200, 70), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+    cv2.putText(frame, "Camera unavailable", (170, 430), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+    return frame
 
 
 def load_encodings():
@@ -15,19 +42,35 @@ def load_encodings():
         return pickle.load(f)
 
 
-def run_recognition():
+def run_recognition(args):
     data = load_encodings()
     known_encodings = data["encodings"]
     known_names = data["names"]
 
-    cap = cv2.VideoCapture(0)
-    print("[INFO] Starting face recognition stream... Press 'q' to exit.")
+    cap = None
+    demo_mode = args.demo
+
+    if not demo_mode:
+        cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            print("[INFO] Camera could not be opened; falling back to demo mode.")
+            demo_mode = True
+
+    if demo_mode:
+        print("[INFO] Starting demo mode. Press 'q' or run with --once to exit.")
+    else:
+        print("[INFO] Starting face recognition stream... Press 'q' to exit.")
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            print("[ERROR] Unable to access camera feed.")
-            break
+        if cap is not None:
+            ret, frame = cap.read()
+            if not ret:
+                print("[ERROR] Unable to read camera feed.")
+                print("Please allow camera access in System Settings → Privacy & Security → Camera.")
+                break
+        else:
+            frame = create_demo_frame()
+
 
         # Convert frame from BGR (OpenCV format) to RGB (face_recognition format)
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -84,15 +127,21 @@ def run_recognition():
             )
 
         # Display the output frame
-        cv2.imshow("Face Detection & Recognition", frame)
+        try:
+            cv2.imshow("Face Detection & Recognition", frame)
+            key = cv2.waitKey(1) & 0xFF
+        except cv2.error:
+            print("[INFO] Display window is unavailable; continuing in headless mode.")
+            key = ord("q")
 
-        # Exit stream on pressing 'q'
-        if cv2.waitKey(1) & 0xFF == ord("q"):
+        if args.once or key == ord("q"):
             break
 
-    cap.release()
+    if cap is not None:
+        cap.release()
     cv2.destroyAllWindows()
 
 
 if __name__ == "__main__":
-    run_recognition()
+    args = parse_args()
+    run_recognition(args)

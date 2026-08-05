@@ -1,10 +1,24 @@
+import argparse
 import os
 import pickle
+from pathlib import Path
+
+from runtime_env import ensure_runtime_paths
+
+ensure_runtime_paths()
+
 import cv2
 import face_recognition
 
-DATASET_DIR = "dataset"
-ENCODINGS_FILE = "encodings.pkl"
+BASE_DIR = Path(__file__).resolve().parent
+DATASET_DIR = str(BASE_DIR / "dataset")
+ENCODINGS_FILE = str(BASE_DIR / "encodings.pkl")
+
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--demo", action="store_true", help="Skip webcam capture and exit gracefully")
+    return parser.parse_args()
 
 
 def load_existing_encodings():
@@ -14,13 +28,21 @@ def load_existing_encodings():
     return {"encodings": [], "names": []}
 
 
-def register_new_person(person_name, max_samples=5):
+def register_new_person(person_name, max_samples=5, use_demo=False):
     person_dir = os.path.join(DATASET_DIR, person_name)
     os.makedirs(person_dir, exist_ok=True)
 
     data = load_existing_encodings()
 
     cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("[INFO] Camera could not be opened; starting in demo mode.")
+        if use_demo:
+            print("[INFO] No face was registered because no camera was available.")
+            return
+        print("Please allow camera access in System Settings → Privacy & Security → Camera.")
+        return
+
     print(
         f"[INFO] Starting webcam for '{person_name}'. Press 'SPACE' to capture face, or 'q' to quit."
     )
@@ -29,7 +51,8 @@ def register_new_person(person_name, max_samples=5):
     while count < max_samples:
         ret, frame = cap.read()
         if not ret:
-            print("[ERROR] Failed to access webcam.")
+            print("[ERROR] Failed to read webcam feed.")
+            print("Please allow camera access in System Settings → Privacy & Security → Camera.")
             break
 
         display_frame = frame.copy()
@@ -86,8 +109,9 @@ def register_new_person(person_name, max_samples=5):
 
 
 if __name__ == "__main__":
+    args = parse_args()
     name = input("Enter the full name of the person to register: ").strip()
     if name:
-        register_new_person(name)
+        register_new_person(name, use_demo=args.demo)
     else:
         print("[ERROR] Name cannot be empty.")
